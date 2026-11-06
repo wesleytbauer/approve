@@ -65,7 +65,8 @@
         }).then(function (y) {
           if (!y.ok || !y.j.totp) { say("Could not start set-up: " + err(y) + ". If it says a factor already exists, you are already set up."); return; }
           factor = y.j.id;
-          var img = document.createElement("img"); img.alt = "QR code for your authenticator app"; img.src = y.j.totp.qr_code;
+          var img = document.createElement("img"); img.alt = "QR code for your authenticator app"; var q = String(y.j.totp.qr_code || ""), i = q.indexOf("<svg");
+          img.src = i >= 0 ? "data:image/svg+xml;charset=utf-8," + encodeURIComponent(q.slice(i)) : q;
           $("qr").appendChild(img); $("secret").textContent = y.j.totp.secret;
           $("signin").classList.add("hidden"); $("enrol").classList.remove("hidden"); say("");
         });
