@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-Y/ywEek1RJB7A8b7r10lWbmXA+GcyoA5KCXepghGh0U='; style-src 'sha256-kwCzJvmVI/CzkFsi5Gmrpvfqewpd+UmeS6EMibOOWcQ='; connect-src https://yfuehqpyrgnwtrjofwcs.supabase.co; img-src 'none'; form-action 'none'; base-uri 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="pco-api" content="https://yfuehqpyrgnwtrjofwcs.supabase.co/functions/v1/owner-approve">
+<title>Approve changes</title>
+<style>
+:root{color-scheme:light dark;--bg:#fff;--fg:#111;--mut:#666;--line:#ddd;--ok:#0a7a3b;--no:#b42318;--card:#f6f6f6}
+@media (prefers-color-scheme:dark){:root{--bg:#111;--fg:#eee;--mut:#aaa;--line:#333;--card:#1c1c1c}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.45 system-ui,-apple-system,sans-serif}
+main{max-width:640px;margin:0 auto;padding:16px}h1{font-size:20px;margin:8px 0 16px}
+label{display:block;margin:12px 0 4px;color:var(--mut);font-size:14px}
+input{width:100%;font-size:17px;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg)}
+button{font-size:17px;padding:14px 16px;border-radius:10px;border:0;width:100%;margin-top:12px;cursor:pointer}
+.go{background:var(--ok);color:#fff}.stop{background:transparent;color:var(--no);border:1px solid var(--no)}
+.plain{background:var(--card);color:var(--fg);border:1px solid var(--line)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin:0 0 16px}
+.meta{color:var(--mut);font-size:13px;word-break:break-all}.item{border-top:1px solid var(--line);padding:10px 0}
+.item:first-of-type{border-top:0}.k{font-weight:600}pre{white-space:pre-wrap;word-break:break-word;font-size:12px;
+max-height:320px;overflow:auto;background:var(--bg);padding:8px;border-radius:6px;border:1px solid var(--line)}
+#msg{min-height:1.4em;color:var(--mut)}.hidden{display:none}
+</style></head>
+<body><main>
+<h1>Changes waiting for you</h1>
+<div id="in">
+<form id="f" autocomplete="on">
+<label for="email">Email</label><input id="email" name="email" type="email" autocomplete="username" required>
+<label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required>
+<label for="code">Code (only if you set up an authenticator app)</label><input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6">
+<button class="go" type="submit">Sign in</button>
+</form>
+</div>
+<div id="list" class="hidden">
+<p id="count"></p>
+<div id="sets"></div>
+<button class="plain" id="reload" type="button">Reload</button>
+<button class="plain" id="out" type="button">Sign out</button>
+</div>
+<p id="msg" role="status"></p>
+</main>
+<script>
+(function () {
+  "use strict";
+  if (window.top !== window.self) { document.body.textContent = "Open this page directly, not inside another page."; return; }
+  var meta = document.querySelector('meta[name="pco-api"]');
+  var API = (meta && meta.getAttribute("content")) || location.origin + location.pathname;
+  var token = null, ticket = null;
+  var $ = function (id) { return document.getElementById(id); };
+  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = String(text); return e; }
+  function say(t) { $("msg").textContent = t || ""; }
+  function call(op, body) {
+    var h = { "Content-Type": "application/json" };
+    if (token) h["Authorization"] = "Bearer " + token;
+    if (ticket) h["X-PCO-Approver"] = ticket;
+    var payload = Object.assign({ op: op }, body || {});
+    return fetch(API, { method: "POST", headers: h, body: JSON.stringify(payload), cache: "no-store",
+      credentials: "omit", referrerPolicy: "no-referrer", redirect: "error" })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { j._status = r.status; return j; }); });
+  }
+  function when(iso) { var d = new Date(iso); return isNaN(d) ? String(iso) : d.toLocaleString(); }
+  function render(sets) {
+    var box = $("sets"); box.textContent = "";
+    var open = sets.filter(function (s) { return s.status === "pending" && !s.expired; });
+    $("count").textContent = open.length ? open.length + (open.length === 1 ? " change set waits" : " change sets wait") + " for your tap." : "Nothing is waiting.";
+    open.forEach(function (s) {
+      var c = el("section", "card");
+      c.appendChild(el("div", "k", s.items.length + (s.items.length === 1 ? " change" : " changes")));
+      c.appendChild(el("div", "meta", "Expires " + when(s.expires_at) + " " + String.fromCharCode(183) + " set " + s.set_hash.slice(0, 12)));
+      if (s.damaged) c.appendChild(el("div", "meta", "Damaged: " + s.damaged + ". Do not approve."));
+      s.items.forEach(function (it) {
+        var d = el("div", "item");
+        d.appendChild(el("div", "k", (it.kind === "sql" ? "Database change: " : "Deploy function: ") + it.name));
+        d.appendChild(el("div", null, it.summary));
+        d.appendChild(el("div", "meta", "Undo: " + it.undo));
+        var det = el("details"); det.appendChild(el("summary", "meta", it.kind === "sql" ? "Show the exact SQL" : "Show the files"));
+        det.appendChild(el("pre", null, it.kind === "sql" ? it.sql : (it.files || []).map(function (f) { return f.sha256.slice(0, 12) + "  " + f.name; }).join("\n") + "\nverify_jwt=" + it.verify_jwt));
+        d.appendChild(det);
+        c.appendChild(d);
+      });
+      var yes = el("button", "go", "Approve " + (s.items.length === 1 ? "this change" : "all " + s.items.length));
+      var no = el("button", "stop", "Reject");
+      yes.disabled = !!s.damaged;
+      function act(decision) {
+        yes.disabled = no.disabled = true; say(decision === "approve" ? "Approving..." : "Rejecting...");
+        call("decide", { set_id: s.id, set_hash: s.set_hash, decision: decision }).then(function (j) {
+          if (j.ok) { say(decision === "approve" ? "Approved for 12 hours, each change once." : "Rejected."); load(); }
+          else { say("Not done: " + (j.error || j._status)); yes.disabled = no.disabled = false; if (j._status === 401) signOut(); }
+        }, function () { say("No connection. Nothing changed."); yes.disabled = no.disabled = false; });
+      }
+      yes.addEventListener("click", function () { act("approve"); });
+      no.addEventListener("click", function () { act("reject"); });
+      c.appendChild(yes); c.appendChild(no);
+      box.appendChild(c);
+    });
+  }
+  function load() {
+    call("list").then(function (j) {
+      if (j._status === 401 || j._status === 403) { say("Sign in again (" + (j.error || j._status) + ")."); signOut(); return; }
+      if (!j.ok) { say("Could not load: " + (j.error || j._status)); return; }
+      render(j.sets || []);
+    }, function () { say("No connection."); });
+  }
+  function signOut() { token = null; ticket = null; $("in").classList.remove("hidden"); $("list").classList.add("hidden"); }
+  $("f").addEventListener("submit", function (ev) {
+    ev.preventDefault(); say("Signing in...");
+    call("sign_in", { email: $("email").value, password: $("password").value, code: $("code").value }).then(function (j) {
+      $("password").value = ""; $("code").value = "";
+      if (!j.ok || !j.access_token || !j.ticket) {
+        say(j.error === "own_password_required" ? "Use a password only you know (not the one the system set up)." :
+          j.error === "code_required" ? "Enter the 6-digit code from your authenticator app." : "Sign-in failed.");
+        return;
+      }
+      token = j.access_token; ticket = j.ticket; say("");
+      $("in").classList.add("hidden"); $("list").classList.remove("hidden"); load();
+    }, function () { say("No connection."); });
+  });
+  $("reload").addEventListener("click", load);
+  $("out").addEventListener("click", function () { signOut(); say("Signed out."); });
+})();
+</script>
+</body></html>
