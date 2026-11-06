@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src https://yfuehqpyrgnwtrjofwcs.supabase.co; form-action 'none'; base-uri 'none'">
+<meta name="referrer" content="no-referrer">
+<title>Set up your authenticator</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 16px/1.5 system-ui, sans-serif; max-width: 26rem; margin: 3rem auto; padding: 0 1rem; }
+  label { display: block; margin-top: 1rem; }
+  input { width: 100%; padding: .6rem; font-size: 1rem; box-sizing: border-box; }
+  button { margin-top: 1.25rem; padding: .7rem 1.2rem; font-size: 1rem; width: 100%; }
+  #qr img { width: 100%; max-width: 260px; display: block; margin: 1rem auto; background: #fff; padding: 8px; }
+  code { word-break: break-all; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<h1>Set up your authenticator</h1>
+<p>Adds a 6-digit code to your approval sign-in, so a stolen password alone can approve nothing.</p>
+
+<form id="signin">
+  <label for="email">Email</label><input id="email" type="email" autocomplete="username" required>
+  <label for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" required>
+  <button type="submit">Sign in</button>
+</form>
+
+<div id="enrol" class="hidden">
+  <p><b>1.</b> Open your authenticator app (Google Authenticator, 1Password, Authy...), tap <b>+</b> and scan this code:</p>
+  <div id="qr"></div>
+  <p>Can't scan? Enter this key by hand: <code id="secret"></code></p>
+  <form id="verify">
+    <label for="code"><b>2.</b> Type the 6-digit code your app now shows</label>
+    <input id="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required>
+    <button type="submit">Confirm</button>
+  </form>
+</div>
+<p id="msg"></p>
+
+<script>
+(function () {
+  var API = "https://yfuehqpyrgnwtrjofwcs.supabase.co/auth/v1";
+  var KEY = "sb_publishable_27Pv7CEVjRjE6UiwsBhTeg_Dl7bP5LF"; // public publishable key, safe in a page
+  var token = null, factor = null;
+  function $(id) { return document.getElementById(id); }
+  function say(t) { $("msg").textContent = t; }
+  function call(method, path, body) {
+    var h = { apikey: KEY, "Content-Type": "application/json" };
+    if (token) h.Authorization = "Bearer " + token;
+    return fetch(API + path, { method: method, headers: h, body: body ? JSON.stringify(body) : undefined })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return { ok: r.ok, j: j }; }); });
+  }
+  function err(x) { return x.j.msg || x.j.error_description || x.j.message || x.j.error || "unknown error"; }
+
+  $("signin").addEventListener("submit", function (e) {
+    e.preventDefault(); say("Signing in...");
+    call("POST", "/token?grant_type=password", { email: $("email").value, password: $("pw").value })
+      .then(function (x) {
+        if (!x.ok || !x.j.access_token) { say("Sign-in failed: " + err(x)); return; }
+        token = x.j.access_token; $("pw").value = "";
+        return call("GET", "/factors").catch(function () { return { ok: false, j: {} }; }).then(function () {
+          return call("POST", "/factors", { factor_type: "totp", friendly_name: "Approval page " + new Date().toISOString().slice(0, 10) });
+        }).then(function (y) {
+          if (!y.ok || !y.j.totp) { say("Could not start set-up: " + err(y) + ". If it says a factor already exists, you are already set up."); return; }
+          factor = y.j.id;
+          var img = document.createElement("img"); img.alt = "QR code for your authenticator app"; img.src = y.j.totp.qr_code;
+          $("qr").appendChild(img); $("secret").textContent = y.j.totp.secret;
+          $("signin").classList.add("hidden"); $("enrol").classList.remove("hidden"); say("");
+        });
+      }).catch(function () { say("Could not reach your core. Try again."); });
+  });
+
+  $("verify").addEventListener("submit", function (e) {
+    e.preventDefault(); say("Checking...");
+    call("POST", "/factors/" + factor + "/challenge", {})
+      .then(function (c) {
+        if (!c.ok || !c.j.id) { say("Could not check the code: " + err(c)); return; }
+        return call("POST", "/factors/" + factor + "/verify", { challenge_id: c.j.id, code: $("code").value.trim() })
+          .then(function (v) {
+            if (!v.ok) { say("That code didn't match: " + err(v) + ". Wait for a fresh code and try again."); return; }
+            $("enrol").classList.add("hidden"); token = null;
+            say("Done. Your authenticator is set up. Tell your builder, so the approval page starts asking for the code.");
+          });
+      }).catch(function () { say("Could not reach your core. Try again."); });
+  });
+})();
+</script>
+</body>
+</html>
