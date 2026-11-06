@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; connect-src https://yfuehqpyrgnwtrjofwcs.supabase.co; form-action 'none'; base-uri 'none'">
+<meta name="referrer" content="no-referrer">
+<title>Set your password</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 16px/1.5 system-ui, sans-serif; max-width: 26rem; margin: 3rem auto; padding: 0 1rem; }
+  label { display: block; margin-top: 1rem; }
+  input { width: 100%; padding: .6rem; font-size: 1rem; box-sizing: border-box; }
+  button { margin-top: 1.25rem; padding: .7rem 1.2rem; font-size: 1rem; width: 100%; }
+  #msg { margin-top: 1rem; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<h1>Set your password</h1>
+<p>This sets the password for your own login to your core. Only you know it; save it in your password manager.</p>
+<form id="f" class="hidden" autocomplete="on">
+  <input type="email" name="username" autocomplete="username" class="hidden" id="user" readonly>
+  <label for="p1">New password (at least 12 characters)</label>
+  <input id="p1" type="password" autocomplete="new-password" minlength="12" required>
+  <label for="p2">Type it again</label>
+  <input id="p2" type="password" autocomplete="new-password" minlength="12" required>
+  <button type="submit">Set password</button>
+</form>
+<p id="msg"></p>
+<script>
+(function () {
+  var API = "https://yfuehqpyrgnwtrjofwcs.supabase.co/auth/v1";
+  var KEY = "sb_publishable_27Pv7CEVjRjE6UiwsBhTeg_Dl7bP5LF"; // public publishable key, safe in a page
+  var msg = document.getElementById("msg"), form = document.getElementById("f");
+  function say(t) { msg.textContent = t; }
+  var hash = new URLSearchParams(location.hash.replace(/^#/, ""));
+  var query = new URLSearchParams(location.search);
+  history.replaceState(null, "", location.pathname);           // the link's token leaves the address bar at once
+  var token = null;
+
+  function ready(t) {
+    token = t;
+    fetch(API + "/user", { headers: { apikey: KEY, Authorization: "Bearer " + t } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (u) { if (u && u.email) document.getElementById("user").value = u.email; });
+    form.classList.remove("hidden");
+    say("");
+  }
+
+  if (hash.get("error_description")) { say("The link did not work: " + hash.get("error_description") + ". Send a new password recovery email and use it within the hour."); return; }
+  if (hash.get("access_token") && hash.get("type") === "recovery") { ready(hash.get("access_token")); }
+  else if (query.get("token_hash") && query.get("type") === "recovery") {
+    say("Checking the link...");
+    fetch(API + "/verify", { method: "POST", headers: { apikey: KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "recovery", token_hash: query.get("token_hash") }) })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (x) { if (x.ok && x.j.access_token) ready(x.j.access_token); else say("The link did not work or has expired. Send a new password recovery email."); })
+      .catch(function () { say("Could not reach your core. Try again."); });
+  } else { say("Open this page from the password recovery email."); }
+
+  form.addEventListener("submit", function (e) {
+    e.preventDefault();
+    var p1 = document.getElementById("p1").value, p2 = document.getElementById("p2").value;
+    if (p1.length < 12) { say("Use at least 12 characters."); return; }
+    if (p1 !== p2) { say("The two passwords are different."); return; }
+    say("Saving...");
+    fetch(API + "/user", { method: "PUT", headers: { apikey: KEY, Authorization: "Bearer " + token, "Content-Type": "application/json" },
+      body: JSON.stringify({ password: p1 }) })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (x) {
+        if (x.ok) { form.classList.add("hidden"); token = null; say("Done. Your password is set. Now open the approval page and sign in."); }
+        else { say("Not saved: " + (x.j.msg || x.j.error_description || x.j.message || "unknown error")); }
+      })
+      .catch(function () { say("Could not reach your core. Try again."); });
+  });
+})();
+</script>
+</body>
+</html>
