@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-hkZkVykIJWpK2xiI6N/DvaY3Nx7GCpAk6Gz0WshTTjE='; style-src 'sha256-kwCzJvmVI/CzkFsi5Gmrpvfqewpd+UmeS6EMibOOWcQ='; connect-src https://yfuehqpyrgnwtrjofwcs.supabase.co; img-src 'none'; form-action 'none'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-qtJX2yrhJGt8tkJrmt4dPQ818e7dBtMMa7sM5ln5g4c='; style-src 'sha256-kwCzJvmVI/CzkFsi5Gmrpvfqewpd+UmeS6EMibOOWcQ='; connect-src https://yfuehqpyrgnwtrjofwcs.supabase.co; img-src 'none'; form-action 'none'; base-uri 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="pco-api" content="https://yfuehqpyrgnwtrjofwcs.supabase.co/functions/v1/owner-approve">
 <title>Approve changes</title>
@@ -34,6 +34,7 @@ max-height:320px;overflow:auto;background:var(--bg);padding:8px;border-radius:6p
 <div id="list" class="hidden">
 <p id="count"></p>
 <div id="sets"></div>
+<div id="unlock"></div>
 <button class="plain" id="reload" type="button">Reload</button>
 <button class="plain" id="out" type="button">Sign out</button>
 </div>
@@ -61,13 +62,32 @@ max-height:320px;overflow:auto;background:var(--bg);padding:8px;border-radius:6p
   function when(iso) { var d = new Date(iso); return isNaN(d) ? String(iso) : d.toLocaleString(); }
   var WHY = { safety: "it touches safety settings", frozen: "it changes a finished recipe", pinned: "it changes shared engine code",
     replay: "it changes a recorded test result" };
+  var NEED = { safety_clear: "It may change shared safety code (never keys, roles, the allowlist, the checks or the queue)." };
+  var DOT = " " + String.fromCharCode(183) + " ";
   function kindOf(s) {
+    if (s.job) return "job";
     if (s.items.every(function (it) { return it.kind === "clear"; })) return "add";
     if (s.items.every(function (it) { return it.kind === "deploy" && it.from_sha; })) return "live";
     return "mixed";
   }
   function item(it) {
     var d = el("div", "item");
+    if (it.kind === "job") {
+      d.appendChild(el("div", "k", String.fromCharCode(8220) + it.title + String.fromCharCode(8221)));
+      d.appendChild(el("div", "meta", "Work order " + String(it.order || "").slice(11, 19) + DOT + "only this job"));
+      d.appendChild(el("div", null, "It may add the job's own change (every check still runs)."));
+      (it.needs || []).forEach(function (n) { if (NEED[n]) d.appendChild(el("div", null, NEED[n])); });
+      var fns = (it.needs || []).filter(function (n) { return n.indexOf("go_live:") === 0; }).map(function (n) { return n.slice(8); });
+      d.appendChild(el("div", null, fns.length ? "Goes live after it is added: " + fns.join(", ") + "." : "Nothing goes live."));
+      d.appendChild(el("div", "meta", "Still asks you separately: money, sends, permanent deletes, new access, allowlist changes, spend over the cap, and anything else."));
+      d.appendChild(el("div", "meta", "Undo: " + it.undo));
+      return d;
+    }
+    if (it.kind === "golive") {
+      d.appendChild(el("div", "k", "Put live: " + it.name));
+      d.appendChild(el("div", null, it.summary));
+      return d;
+    }
     if (it.kind === "clear") {
       d.appendChild(el("div", "k", it.summary));
       d.appendChild(el("div", "meta", "Name " + it.branch + " " + String.fromCharCode(183) + " version " + String(it.head || "").slice(0, 12)));
@@ -95,7 +115,38 @@ max-height:320px;overflow:auto;background:var(--bg);padding:8px;border-radius:6p
     var e = String(j.error || j._status);
     return e.indexOf("second_factor_required") === 0 ? "This one needs your 6-digit code: sign out, then sign in with the code." : "Not done: " + e;
   }
-  function render(sets) {
+  function unlockBox(list) {
+    var u = $("unlock"); u.textContent = "";
+    var c = el("section", "card");
+    if (list.length) {
+      var x = list[0];
+      c.appendChild(el("div", "k", "Work-session unlock is on"));
+      c.appendChild(el("div", "meta", "Until " + when(x.until) + DOT + x.uses + " used so far"));
+      var end = el("button", "stop", "End it now");
+      end.addEventListener("click", function () {
+        end.disabled = true; say("Ending...");
+        call("unlock_end", { set_id: x.id }).then(function (j) { say(j.ok ? "Ended. A card lists what was done." : why(j)); load(); },
+          function () { say("No connection. Nothing changed."); end.disabled = false; });
+      });
+      c.appendChild(end);
+    } else {
+      c.appendChild(el("div", "k", "Work-session unlock"));
+      c.appendChild(el("div", null, "While it is on, the builder adds held changes and puts existing functions live again without asking you each time. Every check still runs."));
+      c.appendChild(el("div", "meta", "Still asks you each time: money, sends, permanent deletes, new access, new allowlist lines, spend over the cap, and changes to this approval code."));
+      [12, 24].forEach(function (h) {
+        var b = el("button", "plain", "Unlock for " + h + " hours");
+        b.addEventListener("click", function () {
+          b.disabled = true; say("Starting...");
+          call("unlock_start", { hours: h }).then(function (j) { say(j.ok ? "Unlocked until " + when(j.until) + "." : why(j)); load(); },
+            function () { say("No connection. Nothing changed."); b.disabled = false; });
+        });
+        c.appendChild(b);
+      });
+    }
+    u.appendChild(c);
+  }
+  function render(sets, unlocks) {
+    unlockBox(unlocks || []);
     var box = $("sets"); box.textContent = "";
     var open = sets.filter(function (s) { return s.status === "pending" && !s.expired; });
     var good = open.filter(function (s) { return !s.damaged; });
@@ -118,19 +169,20 @@ max-height:320px;overflow:auto;background:var(--bg);padding:8px;border-radius:6p
     open.forEach(function (s) {
       var c = el("section", "card"), k = kindOf(s);
       var n = s.items.length;
-      c.appendChild(el("div", "k", k === "add" ? (n === 1 ? "Add this change" : "Add " + n + " changes") :
+      c.appendChild(el("div", "k", k === "job" ? "Approve this job" : k === "add" ? (n === 1 ? "Add this change" : "Add " + n + " changes") :
         k === "live" ? "Put changes live (" + n + ")" : n + (n === 1 ? " change" : " changes")));
       c.appendChild(el("div", "meta", "Expires " + when(s.expires_at) + " " + String.fromCharCode(183) + " set " + s.set_hash.slice(0, 12) +
         (s.needs_code ? " " + String.fromCharCode(183) + " needs your 6-digit code" : "")));
       if (s.damaged) c.appendChild(el("div", "meta", "Damaged: " + s.damaged + ". Do not approve."));
       s.items.forEach(function (it) { c.appendChild(item(it)); });
-      var yes = el("button", "go", k === "add" ? "Approve: add it" : k === "live" ? "Approve: put it live" : "Approve " + (n === 1 ? "this change" : "all " + n));
+      var yes = el("button", "go", k === "job" ? "Approve this job" : k === "add" ? "Approve: add it" : k === "live" ? "Approve: put it live" : "Approve " + (n === 1 ? "this change" : "all " + n));
       var no = el("button", "stop", "Reject");
       yes.disabled = !!s.damaged;
       function act(decision) {
         yes.disabled = no.disabled = true; say(decision === "approve" ? "Approving..." : "Rejecting...");
         decideOne(s, decision).then(function (j) {
-          if (j.ok) { say(decision === "approve" ? "Approved for 12 hours, each change once." : "Rejected."); load(); }
+          if (j.ok) { say(decision === "approve" ? (k === "job" ? "Approved for 3 days, this job only." : "Approved for 12 hours, each change once.") +
+            (j.golive === "dispatched" ? " Going live now: about 3 to 5 minutes." : j.golive === "after_landing" ? " It goes live once the job is on the main line." : "") : "Rejected."); load(); }
           else { say(why(j)); yes.disabled = no.disabled = false; if (j._status === 401) signOut(); }
         }, function () { say("No connection. Nothing changed."); yes.disabled = no.disabled = false; });
       }
@@ -144,7 +196,7 @@ max-height:320px;overflow:auto;background:var(--bg);padding:8px;border-radius:6p
     call("list").then(function (j) {
       if (j._status === 401 || j._status === 403) { say("Sign in again (" + (j.error || j._status) + ")."); signOut(); return; }
       if (!j.ok) { say("Could not load: " + (j.error || j._status)); return; }
-      render(j.sets || []);
+      render(j.sets || [], j.unlocks || []);
     }, function () { say("No connection."); });
   }
   function signOut() { token = null; ticket = null; $("in").classList.remove("hidden"); $("list").classList.add("hidden"); }
