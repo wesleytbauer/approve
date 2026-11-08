@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-Y/ywEek1RJB7A8b7r10lWbmXA+GcyoA5KCXepghGh0U='; style-src 'sha256-kwCzJvmVI/CzkFsi5Gmrpvfqewpd+UmeS6EMibOOWcQ='; connect-src https://yfuehqpyrgnwtrjofwcs.supabase.co; img-src 'none'; form-action 'none'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-hkZkVykIJWpK2xiI6N/DvaY3Nx7GCpAk6Gz0WshTTjE='; style-src 'sha256-kwCzJvmVI/CzkFsi5Gmrpvfqewpd+UmeS6EMibOOWcQ='; connect-src https://yfuehqpyrgnwtrjofwcs.supabase.co; img-src 'none'; form-action 'none'; base-uri 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="pco-api" content="https://yfuehqpyrgnwtrjofwcs.supabase.co/functions/v1/owner-approve">
 <title>Approve changes</title>
@@ -22,7 +22,7 @@ max-height:320px;overflow:auto;background:var(--bg);padding:8px;border-radius:6p
 #msg{min-height:1.4em;color:var(--mut)}.hidden{display:none}
 </style></head>
 <body><main>
-<h1>Changes waiting for you</h1>
+<h1>Waiting for your tap</h1>
 <div id="in">
 <form id="f" autocomplete="on">
 <label for="email">Email</label><input id="email" name="email" type="email" autocomplete="username" required>
@@ -59,33 +59,79 @@ max-height:320px;overflow:auto;background:var(--bg);padding:8px;border-radius:6p
       .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { j._status = r.status; return j; }); });
   }
   function when(iso) { var d = new Date(iso); return isNaN(d) ? String(iso) : d.toLocaleString(); }
+  var WHY = { safety: "it touches safety settings", frozen: "it changes a finished recipe", pinned: "it changes shared engine code",
+    replay: "it changes a recorded test result" };
+  function kindOf(s) {
+    if (s.items.every(function (it) { return it.kind === "clear"; })) return "add";
+    if (s.items.every(function (it) { return it.kind === "deploy" && it.from_sha; })) return "live";
+    return "mixed";
+  }
+  function item(it) {
+    var d = el("div", "item");
+    if (it.kind === "clear") {
+      d.appendChild(el("div", "k", it.summary));
+      d.appendChild(el("div", "meta", "Name " + it.branch + " " + String.fromCharCode(183) + " version " + String(it.head || "").slice(0, 12)));
+      d.appendChild(el("div", "meta", "Waits for you because " + (it.reasons || []).map(function (r) { return WHY[r] || "of a safety rule"; }).join(" and ") + "."));
+      if ((it.paths || []).length) {
+        var dp = el("details"); dp.appendChild(el("summary", "meta", "Show the files it touches"));
+        dp.appendChild(el("pre", null, it.paths.join("\n"))); d.appendChild(dp);
+      }
+      d.appendChild(el("div", "meta", "Undo: " + it.undo));
+      return d;
+    }
+    d.appendChild(el("div", "k", (it.kind === "sql" ? "Database change: " : "Put live: ") + it.name));
+    d.appendChild(el("div", null, it.summary));
+    if (it.kind === "deploy" && it.from_sha) d.appendChild(el("div", "meta", "From the main line at " + it.from_sha.slice(0, 12)));
+    d.appendChild(el("div", "meta", "Undo: " + it.undo));
+    var det = el("details"); det.appendChild(el("summary", "meta", it.kind === "sql" ? "Show the exact SQL" : "Show the files"));
+    det.appendChild(el("pre", null, it.kind === "sql" ? it.sql : (it.files || []).map(function (f) { return f.sha256.slice(0, 12) + "  " + f.name; }).join("\n") + "\nverify_jwt=" + it.verify_jwt));
+    d.appendChild(det);
+    return d;
+  }
+  function decideOne(s, decision) {
+    return call("decide", { set_id: s.id, set_hash: s.set_hash, decision: decision });
+  }
+  function why(j) {
+    var e = String(j.error || j._status);
+    return e.indexOf("second_factor_required") === 0 ? "This one needs your 6-digit code: sign out, then sign in with the code." : "Not done: " + e;
+  }
   function render(sets) {
     var box = $("sets"); box.textContent = "";
     var open = sets.filter(function (s) { return s.status === "pending" && !s.expired; });
-    $("count").textContent = open.length ? open.length + (open.length === 1 ? " change set waits" : " change sets wait") + " for your tap." : "Nothing is waiting.";
-    open.forEach(function (s) {
-      var c = el("section", "card");
-      c.appendChild(el("div", "k", s.items.length + (s.items.length === 1 ? " change" : " changes")));
-      c.appendChild(el("div", "meta", "Expires " + when(s.expires_at) + " " + String.fromCharCode(183) + " set " + s.set_hash.slice(0, 12)));
-      if (s.damaged) c.appendChild(el("div", "meta", "Damaged: " + s.damaged + ". Do not approve."));
-      s.items.forEach(function (it) {
-        var d = el("div", "item");
-        d.appendChild(el("div", "k", (it.kind === "sql" ? "Database change: " : "Deploy function: ") + it.name));
-        d.appendChild(el("div", null, it.summary));
-        d.appendChild(el("div", "meta", "Undo: " + it.undo));
-        var det = el("details"); det.appendChild(el("summary", "meta", it.kind === "sql" ? "Show the exact SQL" : "Show the files"));
-        det.appendChild(el("pre", null, it.kind === "sql" ? it.sql : (it.files || []).map(function (f) { return f.sha256.slice(0, 12) + "  " + f.name; }).join("\n") + "\nverify_jwt=" + it.verify_jwt));
-        d.appendChild(det);
-        c.appendChild(d);
+    var good = open.filter(function (s) { return !s.damaged; });
+    $("count").textContent = open.length ? open.length + " waiting for your tap." : "Nothing is waiting.";
+    if (good.length > 1) {
+      var all = el("button", "go", "Approve all " + good.length);
+      all.addEventListener("click", function () {
+        all.disabled = true; say("Approving " + good.length + "...");
+        var done = 0, failed = [];
+        good.reduce(function (p, s) {
+          return p.then(function () { return decideOne(s, "approve").then(function (j) { if (j.ok) done++; else failed.push(why(j)); },
+            function () { failed.push("No connection."); }); });
+        }, Promise.resolve()).then(function () {
+          say("Approved " + done + " of " + good.length + "." + (failed.length ? " " + failed[0] : ""));
+          load();
+        });
       });
-      var yes = el("button", "go", "Approve " + (s.items.length === 1 ? "this change" : "all " + s.items.length));
+      box.appendChild(all);
+    }
+    open.forEach(function (s) {
+      var c = el("section", "card"), k = kindOf(s);
+      var n = s.items.length;
+      c.appendChild(el("div", "k", k === "add" ? (n === 1 ? "Add this change" : "Add " + n + " changes") :
+        k === "live" ? "Put changes live (" + n + ")" : n + (n === 1 ? " change" : " changes")));
+      c.appendChild(el("div", "meta", "Expires " + when(s.expires_at) + " " + String.fromCharCode(183) + " set " + s.set_hash.slice(0, 12) +
+        (s.needs_code ? " " + String.fromCharCode(183) + " needs your 6-digit code" : "")));
+      if (s.damaged) c.appendChild(el("div", "meta", "Damaged: " + s.damaged + ". Do not approve."));
+      s.items.forEach(function (it) { c.appendChild(item(it)); });
+      var yes = el("button", "go", k === "add" ? "Approve: add it" : k === "live" ? "Approve: put it live" : "Approve " + (n === 1 ? "this change" : "all " + n));
       var no = el("button", "stop", "Reject");
       yes.disabled = !!s.damaged;
       function act(decision) {
         yes.disabled = no.disabled = true; say(decision === "approve" ? "Approving..." : "Rejecting...");
-        call("decide", { set_id: s.id, set_hash: s.set_hash, decision: decision }).then(function (j) {
+        decideOne(s, decision).then(function (j) {
           if (j.ok) { say(decision === "approve" ? "Approved for 12 hours, each change once." : "Rejected."); load(); }
-          else { say("Not done: " + (j.error || j._status)); yes.disabled = no.disabled = false; if (j._status === 401) signOut(); }
+          else { say(why(j)); yes.disabled = no.disabled = false; if (j._status === 401) signOut(); }
         }, function () { say("No connection. Nothing changed."); yes.disabled = no.disabled = false; });
       }
       yes.addEventListener("click", function () { act("approve"); });
