@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-qtJX2yrhJGt8tkJrmt4dPQ818e7dBtMMa7sM5ln5g4c='; style-src 'sha256-kwCzJvmVI/CzkFsi5Gmrpvfqewpd+UmeS6EMibOOWcQ='; connect-src https://yfuehqpyrgnwtrjofwcs.supabase.co; img-src 'none'; form-action 'none'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-dHa/p0NqHoG0914/CFvm0cxRyZNtcnBm42gzjh0ItPw='; style-src 'sha256-kwCzJvmVI/CzkFsi5Gmrpvfqewpd+UmeS6EMibOOWcQ='; connect-src https://yfuehqpyrgnwtrjofwcs.supabase.co; img-src 'none'; form-action 'none'; base-uri 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="pco-api" content="https://yfuehqpyrgnwtrjofwcs.supabase.co/functions/v1/owner-approve">
 <title>Approve changes</title>
@@ -74,7 +74,12 @@ max-height:320px;overflow:auto;background:var(--bg);padding:8px;border-radius:6p
     var d = el("div", "item");
     if (it.kind === "job") {
       d.appendChild(el("div", "k", String.fromCharCode(8220) + it.title + String.fromCharCode(8221)));
-      d.appendChild(el("div", "meta", "Work order " + String(it.order || "").slice(11, 19) + DOT + "only this job"));
+      if (it.origin === "chat") {
+        d.appendChild(el("div", "meta", "Written by the builder, not by you: check it is what you asked for in chat."));
+        d.appendChild(el("div", "meta", "From chat" + DOT + "branch " + String(it.branch || "") + DOT + "only this branch"));
+      } else {
+        d.appendChild(el("div", "meta", "Work order " + String(it.order || "").slice(11, 19) + DOT + "only this job"));
+      }
       d.appendChild(el("div", null, "It may add the job's own change (every check still runs)."));
       (it.needs || []).forEach(function (n) { if (NEED[n]) d.appendChild(el("div", null, NEED[n])); });
       var fns = (it.needs || []).filter(function (n) { return n.indexOf("go_live:") === 0; }).map(function (n) { return n.slice(8); });
@@ -149,7 +154,8 @@ max-height:320px;overflow:auto;background:var(--bg);padding:8px;border-radius:6p
     unlockBox(unlocks || []);
     var box = $("sets"); box.textContent = "";
     var open = sets.filter(function (s) { return s.status === "pending" && !s.expired; });
-    var good = open.filter(function (s) { return !s.damaged; });
+    // a chat job card is the builder's own proposal: it is always tapped on its own, never in "Approve all"
+    var good = open.filter(function (s) { return !s.damaged && !s.chat; });
     $("count").textContent = open.length ? open.length + " waiting for your tap." : "Nothing is waiting.";
     if (good.length > 1) {
       var all = el("button", "go", "Approve all " + good.length);
@@ -169,7 +175,7 @@ max-height:320px;overflow:auto;background:var(--bg);padding:8px;border-radius:6p
     open.forEach(function (s) {
       var c = el("section", "card"), k = kindOf(s);
       var n = s.items.length;
-      c.appendChild(el("div", "k", k === "job" ? "Approve this job" : k === "add" ? (n === 1 ? "Add this change" : "Add " + n + " changes") :
+      c.appendChild(el("div", "k", k === "job" ? (s.chat ? "Approve this chat job" : "Approve this job") : k === "add" ? (n === 1 ? "Add this change" : "Add " + n + " changes") :
         k === "live" ? "Put changes live (" + n + ")" : n + (n === 1 ? " change" : " changes")));
       c.appendChild(el("div", "meta", "Expires " + when(s.expires_at) + " " + String.fromCharCode(183) + " set " + s.set_hash.slice(0, 12) +
         (s.needs_code ? " " + String.fromCharCode(183) + " needs your 6-digit code" : "")));
