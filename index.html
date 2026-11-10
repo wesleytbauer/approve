@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-dHa/p0NqHoG0914/CFvm0cxRyZNtcnBm42gzjh0ItPw='; style-src 'sha256-kwCzJvmVI/CzkFsi5Gmrpvfqewpd+UmeS6EMibOOWcQ='; connect-src https://yfuehqpyrgnwtrjofwcs.supabase.co; img-src 'none'; form-action 'none'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-b7saakZNq2+jClplhZnjGWKb73iFHefBmB1kSxMvGA4='; style-src 'sha256-kwCzJvmVI/CzkFsi5Gmrpvfqewpd+UmeS6EMibOOWcQ='; connect-src https://yfuehqpyrgnwtrjofwcs.supabase.co; img-src 'none'; form-action 'none'; base-uri 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="pco-api" content="https://yfuehqpyrgnwtrjofwcs.supabase.co/functions/v1/owner-approve">
 <title>Approve changes</title>
@@ -76,7 +76,7 @@ max-height:320px;overflow:auto;background:var(--bg);padding:8px;border-radius:6p
       d.appendChild(el("div", "k", String.fromCharCode(8220) + it.title + String.fromCharCode(8221)));
       if (it.origin === "chat") {
         d.appendChild(el("div", "meta", "Written by the builder, not by you: check it is what you asked for in chat."));
-        d.appendChild(el("div", "meta", "From chat" + DOT + "branch " + String(it.branch || "") + DOT + "only this branch"));
+        d.appendChild(el("div", "meta", "From chat" + DOT + "job name " + String(it.branch || "") + DOT + "only this job"));
       } else {
         d.appendChild(el("div", "meta", "Work order " + String(it.order || "").slice(11, 19) + DOT + "only this job"));
       }
